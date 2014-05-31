@@ -1,0 +1,96 @@
+#!/usr/bin/perl
+
+use warnings FATAL=>'all';
+use strict;
+use Encode;
+use Encode::Locale;
+use LWP::UserAgent;
+use HTML::TreeBuilder;
+
+binmode STDOUT, ':utf8';
+
+my $debug = 0;
+sub dprintln {
+    my $str = shift;
+    if ($debug) {
+    print $str. "\n";
+    }
+}
+
+my $ANSWER_LENGTH = 200;
+
+
+if (@ARGV == 0) {
+  print "ggrks\n";
+  exit;
+}
+
+my @queries;
+foreach my $query (@ARGV) {
+    push @queries, decode(locale => $query);
+}
+
+my $google = 'https://www.google.com/search?';
+
+my $ua = LWP::UserAgent->new;
+$ua->agent('Mozilla/5.0 (Windows NT 6.1; WOW64; rv:9.0.1) Gecko/20100101 Firefox/9.0.1');
+
+my @search_results = get_google_results();
+
+my $answer_text = get_answer_text($search_results[0]);
+
+print $answer_text. "\n";
+
+sub get_google_results {
+    my $url = $google. 'q='. join('+', @queries);
+    dprintln $url;
+    my $response = $ua->get($url);
+
+    die $response->message. '('. $url. ')' if ! $response->is_success;
+
+    my $response_content = $response->decoded_content;
+    dprintln $response_content;
+
+    my @results;
+    while ($response_content =~ m{<cite>([^"]*)?</cite>}gc) {
+        my $cite = $1;
+
+        $cite =~ s{<b>}{}g;
+        $cite =~ s{</b>}{}g;
+
+        next if $cite =~ /^https/;
+
+        push @results, $cite;
+    }
+
+    # print $results[0]. "\n";
+
+    return @results;
+}
+
+
+sub get_answer_text {
+    my $url = shift;
+    dprintln $url;
+
+    my $response = $ua->get('http://'. $url);
+    die $response->message if ! $response->is_success;
+
+    my $response_content = $response->decoded_content;
+#     print $response_content. "\n";
+
+    my $tree = HTML::TreeBuilder->new;
+    $tree->parse_content($response_content);
+    my $text = $tree->as_text;
+    dprintln $text;
+    $tree->delete;
+
+    my $answer;
+    if ($text =~ m/(.{0,$ANSWER_LENGTH}$queries[0].{0,$ANSWER_LENGTH})/) {
+        $answer = $1;
+    } else {
+        die "can't find answer\n";
+    }
+
+    return $answer;
+}
